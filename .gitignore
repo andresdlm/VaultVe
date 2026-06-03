@@ -1,0 +1,79 @@
+# ─── macOS ─────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# ─── Xcode: user-specific ──────────────────────────────────────────────
+xcuserdata/
+*.xcuserstate
+*.xcuserstatec
+*.xcscheme.plist
+*.perspectivev3
+*.mode1v3
+*.mode2v3
+*.pbxuser
+
+# ─── Xcode: build artifacts ────────────────────────────────────────────
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xcarchive
+*.xcresult
+
+# ─── Swift Package Manager ─────────────────────────────────────────────
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+
+# ─── CocoaPods (por si se agrega más adelante) ─────────────────────────
+Pods/
+Podfile.lock
+
+# ─── Carthage (idem) ───────────────────────────────────────────────────
+Carthage/Build/
+Carthage/Checkouts/
+
+# ─── fastlane ──────────────────────────────────────────────────────────
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# ─── Provisioning / firmas (NUNCA committear) ──────────────────────────
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+*.certSigningRequest
+
+# ─── Logs / temporales ─────────────────────────────────────────────────
+*.log
+*.tmp
+*.swp
+*.bak
+
+# ─── Editores ──────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+
+# ─── Claude Code / herramientas locales ────────────────────────────────
+.claude/
+CLAUDE.local.md
+CLAUDE.md
+
+# ─── Secretos / config local ───────────────────────────────────────────
+*.env
+.env.*
+secrets.plist
+GoogleService-Info.plist
