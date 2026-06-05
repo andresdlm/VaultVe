@@ -9,11 +9,17 @@ struct AnalyticsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 ScreenTitle(title: "Analytics", sub: "REPORTES · ÚLTIMOS 30 DÍAS")
                     .padding(.bottom, 4)
 
                 RateChartCard()
+
+                SalaryCard(vm: viewModel)
+
+                SpendingDonutCard(slices: viewModel.categorySlices, totalUsd: viewModel.totalSpentUsd)
+
+                AccountsCard(slices: viewModel.accountSlices, totalUsd: viewModel.totalAccountsUsd)
 
                 MetricCard(
                     label:  "COSTO PROMEDIO USDT",
@@ -46,6 +52,241 @@ struct AnalyticsView: View {
         .background { VaultBackground() }
     }
 }
+
+// MARK: - Salary usage
+
+private struct SalaryCard: View {
+    let vm: AnalyticsViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("SUELDO SIN GASTAR").vLabel()
+                Spacer()
+                Text("INGRESOS $\(vFmt(vm.totalIncomeUsd))").vLabel(size: 9, color: .vTx3)
+            }
+
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
+                Text("$").vNum(size: 20, color: .vTx2)
+                Text(vFmt(vm.unspentUsd)).vNum(size: 30, color: .vAcc)
+                Text("USD").vLabel(size: 9).padding(.bottom, 4)
+                Spacer()
+                Text("\(vFmt(vm.unspentFraction * 100, dec: 0))%")
+                    .vNum(size: 16, color: .vAcc)
+            }
+            .padding(.top, 6)
+
+            // Spent vs available bar
+            GeometryReader { geo in
+                let spentW = geo.size.width * CGFloat(vm.spentFraction)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.vAcc.opacity(0.18))
+                    Capsule().fill(Color.vDanger.opacity(0.7))
+                        .frame(width: max(0, spentW))
+                }
+            }
+            .frame(height: 8)
+            .padding(.top, 12)
+
+            HStack(spacing: 6) {
+                LegendDot(color: .vDanger)
+                Text("GASTADO $\(vFmt(vm.totalSpentUsd))").vLabel(size: 9, color: .vTx2)
+                Spacer()
+                LegendDot(color: .vAcc)
+                Text("DISPONIBLE $\(vFmt(vm.unspentUsd))").vLabel(size: 9, color: .vTx2)
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassCard()
+    }
+}
+
+// MARK: - Spending by category (donut)
+
+private struct SpendingDonutCard: View {
+    let slices: [CategorySlice]
+    let totalUsd: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("EN QUÉ SE VA EL DINERO").vLabel()
+            Text("GASTO POR CATEGORÍA · COSTO REAL USD").vLabel(size: 9, color: .vTx3)
+                .padding(.top, 3)
+
+            if slices.isEmpty {
+                Text("// SIN GASTOS REGISTRADOS")
+                    .vLabel(size: 9, color: .vTx3)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 30)
+            } else {
+                HStack(alignment: .center, spacing: 16) {
+                    DonutChart(slices: slices, totalUsd: totalUsd)
+                        .frame(width: 116, height: 116)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(slices) { slice in
+                            HStack(spacing: 7) {
+                                LegendDot(color: slice.category.chartColor)
+                                Text(slice.category.label.uppercased())
+                                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(Color.vTx1)
+                                    .tracking(0.5)
+                                Spacer(minLength: 4)
+                                Text("\(vFmt(slice.fraction * 100, dec: 0))%")
+                                    .vNum(size: 10, color: .vTx2)
+                                Text("$\(vFmt(slice.usd))")
+                                    .vNum(size: 10, color: slice.category.chartColor)
+                                    .frame(width: 58, alignment: .trailing)
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 14)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassCard()
+    }
+}
+
+private struct DonutChart: View {
+    let slices: [CategorySlice]
+    let totalUsd: Double
+
+    var body: some View {
+        ZStack {
+            Canvas { ctx, size in
+                let lineW = size.width * 0.17
+                let radius = min(size.width, size.height) / 2 - lineW / 2
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let gap = 0.012 // small gap between segments (fraction of circle)
+
+                var start = -0.25 // top, in turns (−90°)
+                for slice in slices {
+                    let sweep = slice.fraction - gap
+                    guard sweep > 0 else { continue }
+                    let startAngle = Angle(radians: start * 2 * .pi)
+                    let endAngle   = Angle(radians: (start + sweep) * 2 * .pi)
+                    var path = Path()
+                    path.addArc(center: center, radius: radius,
+                                startAngle: startAngle, endAngle: endAngle, clockwise: false)
+                    ctx.stroke(
+                        path,
+                        with: .color(slice.category.chartColor),
+                        style: StrokeStyle(lineWidth: lineW, lineCap: .butt)
+                    )
+                    start += slice.fraction
+                }
+            }
+            VStack(spacing: 1) {
+                Text("TOTAL").vLabel(size: 8, color: .vTx3)
+                Text("$\(vFmt(totalUsd, dec: 0))").vNum(size: 16, color: .vTx1)
+            }
+        }
+    }
+}
+
+// MARK: - Accounts (holdings)
+
+private struct AccountsCard: View {
+    let slices: [AccountSlice]
+    let totalUsd: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("MIS CUENTAS").vLabel()
+                Spacer()
+                Text("PATRIMONIO $\(vFmt(totalUsd))").vLabel(size: 9, color: .vAcc)
+            }
+            Text("DISTRIBUCIÓN POR CUENTA · VALOR EN USD").vLabel(size: 9, color: .vTx3)
+                .padding(.top, 3)
+
+            VStack(spacing: 12) {
+                ForEach(slices) { slice in
+                    AccountBar(slice: slice)
+                }
+            }
+            .padding(.top, 14)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassCard()
+    }
+}
+
+private struct AccountBar: View {
+    let slice: AccountSlice
+
+    private var color: Color { slice.kind.chartColor }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Text(slice.kind.glyph)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(color)
+                Text(slice.kind.name)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.vTx1)
+                    .tracking(0.5)
+                Text(slice.kind.ticker).vLabel(size: 8, color: .vTx3)
+                Spacer()
+                Text(slice.nativeLabel).vNum(size: 11, color: .vTx2)
+                Text("$\(vFmt(slice.usd))").vNum(size: 11, color: color)
+                    .frame(width: 70, alignment: .trailing)
+            }
+
+            GeometryReader { geo in
+                let w = geo.size.width * CGFloat(slice.fraction)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.vBg.opacity(0.6))
+                    Capsule().fill(color.opacity(0.85))
+                        .frame(width: max(2, w))
+                }
+            }
+            .frame(height: 7)
+        }
+    }
+}
+
+// MARK: - Shared bits
+
+private struct LegendDot: View {
+    let color: Color
+    var body: some View {
+        Circle().fill(color).frame(width: 7, height: 7)
+    }
+}
+
+extension GastoCategory {
+    var chartColor: Color {
+        switch self {
+        case .mercado:      return .vAcc
+        case .salud:        return .vInfo
+        case .transporte:   return .vAmber
+        case .restaurantes: return .vDanger
+        case .servicios:    return Color(hex: "9B7BFF")
+        case .ocio:         return Color(hex: "FF6FB5")
+        case .otros:        return .vTx2
+        }
+    }
+}
+
+extension AccountKind {
+    var chartColor: Color {
+        switch self {
+        case .usd:  return .vAcc
+        case .usdt: return .vInfo
+        case .ves:  return .vAmber
+        }
+    }
+}
+
+// MARK: - Existing cards
 
 struct RateChartCard: View {
     var body: some View {
@@ -94,6 +335,7 @@ struct RateChartCard: View {
             }
             .frame(height: 120)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .glassCard()
     }
@@ -111,6 +353,7 @@ struct MetricCard: View {
             Text(value).vNum(size: 22, color: accent).padding(.top, 6)
             Text(sub).vLabel(size: 9, color: .vTx3).padding(.top, 5)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(13)
         .glassCard()
     }
