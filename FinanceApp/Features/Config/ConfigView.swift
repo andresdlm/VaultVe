@@ -8,11 +8,13 @@ struct ConfigView: View {
     }
 
     var body: some View {
-        ScrollView {
+        @Bindable var vm = viewModel
+        return ScrollView {
             VStack(spacing: 8) {
                 ScreenTitle(title: "Config", sub: "v1.0 · SYSTEM READY")
                     .padding(.bottom, 4)
 
+                // ─── Security ────────────────────────────────────────────────
                 VStack(spacing: 0) {
                     ConfigSectionHeader(label: "SEGURIDAD")
                     TerminalSeparator(style: .dashed)
@@ -26,6 +28,7 @@ struct ConfigView: View {
                 .padding(.horizontal, 14)
                 .solidCard()
 
+                // ─── Storage ─────────────────────────────────────────────────
                 VStack(spacing: 0) {
                     ConfigSectionHeader(label: "ALMACENAMIENTO")
                     TerminalSeparator(style: .dashed)
@@ -48,38 +51,81 @@ struct ConfigView: View {
                 .padding(.horizontal, 14)
                 .solidCard()
 
+                // ─── General ─────────────────────────────────────────────────
                 VStack(spacing: 0) {
-                    ConfigSectionHeader(label: "DASHBOARD")
+                    ConfigSectionHeader(label: "GENERAL")
                     TerminalSeparator(style: .dashed)
-                    ConfigSegmentRow(
-                        label: "LAYOUT",
-                        options: DashboardLayout.allCases.map(\.label),
-                        selectedIndex: DashboardLayout.allCases.firstIndex(of: viewModel.selectedLayout) ?? 0
-                    ) { idx in viewModel.selectedLayout = DashboardLayout.allCases[idx] }
-
-                    TerminalSeparator(style: .dashed)
-                    ConfigSegmentRow(
-                        label: "TASA ACTIVA",
-                        options: ["Paralela", "BCV"],
-                        selectedIndex: viewModel.selectedRate == .paralela ? 0 : 1
-                    ) { idx in viewModel.selectedRate = idx == 0 ? .paralela : .bcv }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("MONEDA BASE").vLabel()
+                        Text("// USADA PARA EL PATRIMONIO TOTAL Y REPORTES")
+                            .vLabel(size: 9, color: .vTx3)
+                        CurrencyPicker(selected: Binding(
+                            get: { viewModel.baseCurrency },
+                            set: { viewModel.baseCurrency = $0 }
+                        ), label: "")
+                    }
+                    .padding(.vertical, 12)
                 }
                 .padding(.horizontal, 14)
                 .solidCard()
 
+                // ─── Rates ───────────────────────────────────────────────────
                 VStack(spacing: 0) {
-                    ConfigSectionHeader(label: "TASAS")
+                    ConfigSectionHeader(label: "TASAS DE CAMBIO")
                     TerminalSeparator(style: .dashed)
-                    ConfigRow(label: "BCV", value: "Bs \(vFmt(viewModel.currentRates.bcv))")
+                    HStack(spacing: 6) {
+                        Text("// 1 \(viewModel.baseCurrency.code) =")
+                            .vLabel(size: 9, color: .vTx3)
+                        Text("X \(viewModel.baseCurrency.code) · CONVERSIÓN A LA BASE")
+                            .vLabel(size: 9, color: .vTx3)
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
                     TerminalSeparator(style: .dashed)
-                    ConfigRow(label: "PARALELA", value: "Bs \(vFmt(viewModel.currentRates.paralela))")
+
+                    ForEach(viewModel.nonBaseCurrencies) { c in
+                        Button {
+                            viewModel.showRateEditor = c
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        } label: {
+                            HStack {
+                                Text(c.symbol)
+                                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(Color.vTx2)
+                                    .frame(width: 22)
+                                Text(c.code).vLabel(color: .vTx1)
+                                Text("· \(c.label)").vLabel(color: .vTx2)
+                                Spacer()
+                                let r = viewModel.rate(for: c)
+                                if r > 0 {
+                                    Text("\(vFmt(r, dec: 4)) \(c.code) / 1 \(viewModel.baseCurrency.code)")
+                                        .vNum(size: 11, color: .vAmber)
+                                } else {
+                                    Text("SIN TASA").vLabel(size: 9, color: .vDanger)
+                                }
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(Color.vTx3)
+                            }
+                            .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        if c != viewModel.nonBaseCurrencies.last { TerminalSeparator(style: .dashed) }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .solidCard()
+
+                // ─── Categories ──────────────────────────────────────────────
+                VStack(spacing: 0) {
+                    ConfigSectionHeader(label: "CATEGORÍAS")
                     TerminalSeparator(style: .dashed)
                     Button {
-                        viewModel.showRateEditor = true
+                        viewModel.showCategoriesSheet = true
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     } label: {
                         HStack {
-                            Text("ACTUALIZAR TASAS").vLabel(color: .vAcc)
+                            Text("GESTIONAR CATEGORÍAS").vLabel(color: .vAcc)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 11, weight: .bold))
@@ -93,7 +139,7 @@ struct ConfigView: View {
                 .solidCard()
 
                 HStack(spacing: 4) {
-                    Text("// VAULTVE · MVVM · SWIFTDATA · IOS 26").vLabel(size: 9, color: .vTx3)
+                    Text("// VAULT · MVVM · SWIFTDATA · IOS 26").vLabel(size: 9, color: .vTx3)
                     BlinkingCursor(color: .vTx3, height: 9)
                 }
                 .padding(.top, 8)
@@ -102,60 +148,76 @@ struct ConfigView: View {
             .padding(.bottom, 24)
         }
         .background { VaultBackground() }
-        .sheet(isPresented: $viewModel.showRateEditor) {
+        .sheet(item: $vm.showRateEditor) { currency in
             RateEditorSheet(
-                initialBcv: viewModel.currentRates.bcv,
-                initialParalela: viewModel.currentRates.paralela
-            ) { bcv, paralela in
-                viewModel.updateRates(bcv: bcv, paralela: paralela)
+                currency: currency,
+                baseCurrency: viewModel.baseCurrency,
+                initialRate: viewModel.rate(for: currency)
+            ) { rate in
+                viewModel.updateRate(currency, unitsPerBase: rate)
             }
+        }
+        .sheet(isPresented: $vm.showCategoriesSheet) {
+            CategoriesManagerSheet(engine: viewModel.engine)
         }
     }
 }
 
 struct RateEditorSheet: View {
-    let initialBcv: Double
-    let initialParalela: Double
-    let onSave: (Double, Double) -> Void
+    let currency: Currency
+    let baseCurrency: Currency
+    let initialRate: Double
+    let onSave: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var text: String = ""
 
-    @State private var bcv: String = ""
-    @State private var paralela: String = ""
-
-    private var bcvValue: Double { Double(bcv.replacingOccurrences(of: ",", with: ".")) ?? 0 }
-    private var paralelaValue: Double { Double(paralela.replacingOccurrences(of: ",", with: ".")) ?? 0 }
-    private var canSave: Bool { bcvValue > 0 && paralelaValue > 0 }
+    private var rateValue: Double {
+        Double(text.replacingOccurrences(of: ",", with: ".")) ?? 0
+    }
+    private var canSave: Bool { rateValue > 0 }
 
     var body: some View {
         ZStack {
             VaultBackground()
             ScrollView {
                 VStack(spacing: 14) {
-                    FormHeader(title: "Tasas BCV / Paralela", subtitle: "ACTUALIZA LAS TASAS DE REFERENCIA")
-                        .padding(.bottom, 6)
+                    FormHeader(
+                        title: "Tasa \(currency.code)",
+                        subtitle: "CONVERSIÓN A \(baseCurrency.code)"
+                    )
+                    .padding(.bottom, 6)
+
+                    VStack(spacing: 0) {
+                        HStack(spacing: 5) {
+                            Text("1").vNum(size: 14, color: .vAcc)
+                            Text(baseCurrency.code).vLabel(color: .vTx2)
+                            Text("=").vLabel(color: .vTx3)
+                            Text("X").vNum(size: 14, color: .vAmber)
+                            Text(currency.code).vLabel(color: .vTx2)
+                        }
+                        Text("// CUÁNTOS \(currency.code) EQUIVALEN A 1 \(baseCurrency.code)")
+                            .vLabel(size: 9, color: .vTx3)
+                            .padding(.top, 4)
+                    }
+                    .padding(12)
+                    .glassCard()
 
                     VStack(spacing: 12) {
                         TerminalField(
-                            label: "BCV",
-                            placeholder: "0.00",
-                            text: $bcv,
+                            label: "TASA",
+                            placeholder: "0.0000",
+                            text: $text,
                             keyboard: .decimalPad,
-                            prefix: "Bs", suffix: "/ $"
-                        )
-                        TerminalField(
-                            label: "PARALELA",
-                            placeholder: "0.00",
-                            text: $paralela,
-                            keyboard: .decimalPad,
-                            prefix: "Bs", suffix: "/ $"
+                            prefix: currency.symbol,
+                            suffix: "/ 1 \(baseCurrency.code)"
                         )
                     }
                     .padding(14)
                     .solidCard()
 
-                    TerminalActionButton(title: "GUARDAR TASAS", color: .vAmber, disabled: !canSave) {
-                        onSave(bcvValue, paralelaValue)
+                    TerminalActionButton(title: "GUARDAR TASA", color: .vAmber, disabled: !canSave) {
+                        onSave(rateValue)
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         dismiss()
                     }
@@ -169,8 +231,7 @@ struct RateEditorSheet: View {
         .presentationBackground(.thinMaterial)
         .presentationDragIndicator(.visible)
         .onAppear {
-            bcv      = initialBcv > 0      ? String(format: "%.2f", initialBcv) : ""
-            paralela = initialParalela > 0 ? String(format: "%.2f", initialParalela) : ""
+            text = initialRate > 0 ? String(format: "%.4f", initialRate) : ""
         }
     }
 }
@@ -178,11 +239,8 @@ struct RateEditorSheet: View {
 struct ConfigSectionHeader: View {
     let label: String
     var body: some View {
-        HStack {
-            Text(label).vLabel(color: .vTx2)
-            Spacer()
-        }
-        .padding(.vertical, 10)
+        HStack { Text(label).vLabel(color: .vTx2); Spacer() }
+            .padding(.vertical, 10)
     }
 }
 
@@ -202,6 +260,7 @@ struct ConfigRow: View {
 struct ConfigToggleRow: View {
     let label: String
     @Binding var isOn: Bool
+
     var body: some View {
         HStack {
             Text(label).vLabel()
@@ -215,42 +274,6 @@ struct ConfigToggleRow: View {
                     .foregroundStyle(isOn ? Color.vAcc : Color.vTx3)
             }
             .buttonStyle(.plain)
-        }
-        .padding(.vertical, 12)
-    }
-}
-
-struct ConfigSegmentRow: View {
-    let label: String
-    let options: [String]
-    let selectedIndex: Int
-    let onChange: (Int) -> Void
-
-    var body: some View {
-        HStack {
-            Text(label).vLabel()
-            Spacer()
-            HStack(spacing: 5) {
-                ForEach(options.indices, id: \.self) { i in
-                    let active = i == selectedIndex
-                    Button {
-                        onChange(i)
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        Text(options[i])
-                            .vLabel(size: 9, color: active ? .vAcc : .vTx3)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 4)
-                            .background(active ? Color.vAcc.opacity(0.10) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 4))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .strokeBorder(active ? Color.vAcc.opacity(0.40) : .clear, lineWidth: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
         }
         .padding(.vertical, 12)
     }

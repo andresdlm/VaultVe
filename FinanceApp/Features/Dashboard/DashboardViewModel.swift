@@ -3,36 +3,22 @@ import Observation
 
 @Observable
 final class DashboardViewModel {
-    private let engine: VaultEngine
-
-    var isRefreshing       = false
-    var showNuevaOpSheet   = false
-
-    var patrimonioUsd:  Double { engine.patrimonioUsd }
-    var patrimonioVes:  Double { engine.patrimonioVes }
-    var usdAvail:       Double { engine.usdAvail }
-    var usdtAvail:      Double { engine.usdtAvail }
-    var usdtAvgCost:    Double { engine.usdtAvgCost }
-    var vesBalance:     Double { engine.vesBalance }
-    var vesCostPerBs:   Double { engine.vesCostPerBs }
-    var vesInUsd:       Double { engine.vesInUsd }
-    var spreadPct:      Double { engine.spreadPct }
-    var rates:          ExchangeRates { engine.rates }
-    var activeRateKey:  ActiveRate    { engine.activeRateKey }
-    var layout:         DashboardLayout { engine.dashboardLayout }
-
-    var usdtLots: [USDTLot] { engine.usdtLots }
-    var vesLots:  [VESLot]  { engine.vesLots }
+    let engine: VaultEngine
+    var showNuevaOpSheet = false
 
     init(engine: VaultEngine) {
         self.engine = engine
     }
 
-    func refresh() async {
-        isRefreshing = true
-        try? await Task.sleep(for: .seconds(1.15))
-        engine.refresh()
-        isRefreshing = false
+    var baseCurrency: Currency { engine.baseCurrency }
+    var totalNetWorth: Double  { engine.totalNetWorth }
+    var monthIncome:  Double   { engine.monthIncomeBase }
+    var monthExpense: Double   { engine.monthExpensesBase }
+    var monthBalance: Double   { engine.monthBalanceBase }
+    var accounts:     [Account] { engine.accounts }
+    var missingRates: [Currency] { engine.currenciesMissingRate }
+    var recentMovements: [Transaction] {
+        Array(engine.transactions.prefix(3))
     }
 
     func openNuevaOp() {

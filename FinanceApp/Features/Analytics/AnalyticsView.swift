@@ -8,37 +8,25 @@ struct AnalyticsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        @Bindable var vm = viewModel
+        return ScrollView {
             VStack(spacing: 8) {
-                ScreenTitle(title: "Analytics", sub: "REPORTES · ÚLTIMOS 30 DÍAS")
+                ScreenTitle(title: "Stats", sub: "REPORTES SOBRE TU ACTIVIDAD")
                     .padding(.bottom, 4)
 
-                RateChartCard()
+                RangeSelector(range: $vm.range)
 
-                MetricCard(
-                    label:  "COSTO PROMEDIO USDT",
-                    value:  "$\(vFmt(viewModel.usdtAvgCost, dec: 4))/₮",
-                    sub:    "mejor $0.9985  ·  peor $1.0031",
-                    accent: .vInfo
-                )
-                MetricCard(
-                    label:  "TASA EFECTIVA PROMEDIO VES",
-                    value:  "Bs 41.52/$",
-                    sub:    "vs paralela Bs \(vFmt(viewModel.paralela))  ·  eficiencia 99.2%",
-                    accent: .vAmber
-                )
-                MetricCard(
-                    label:  "PÉRDIDA EN CONVERSIONES",
-                    value:  "$ 4.83",
-                    sub:    "este mes  ·  0.48% de tu flujo total",
-                    accent: .vDanger
-                )
+                SummaryCard(vm: viewModel)
 
-                HStack(spacing: 4) {
-                    Text("// MÁS REPORTES — EN CONSTRUCCIÓN").vLabel(size: 9, color: .vTx3)
-                    BlinkingCursor(color: .vTx3, height: 9)
+                if viewModel.expenseByCategory.isEmpty && viewModel.totalIncomeBase == 0 {
+                    EmptyStatsState()
+                } else {
+                    CategoryBreakdownCard(vm: viewModel)
+                    TrendCard(vm: viewModel)
+                    if !viewModel.topMerchants.isEmpty {
+                        TopMerchantsCard(vm: viewModel)
+                    }
                 }
-                .padding(.top, 8)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
@@ -47,71 +35,249 @@ struct AnalyticsView: View {
     }
 }
 
-struct RateChartCard: View {
+private struct RangeSelector: View {
+    @Binding var range: DateRange
+
     var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(DateRange.allCases) { r in
+                    ChipButton(glyph: nil, label: r.label, color: .vAcc, active: range == r) {
+                        withAnimation(.easeInOut(duration: 0.2)) { range = r }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct SummaryCard: View {
+    let vm: AnalyticsViewModel
+
+    var body: some View {
+        let base = vm.baseCurrency
+        let balance = vm.balanceBase
+
+        VStack(spacing: 0) {
+            HStack {
+                Text("RESUMEN").vLabel(color: .vTx2)
+                Spacer()
+                Text(vm.range.label).vLabel(size: 9, color: .vTx3)
+            }
+            TerminalSeparator(style: .dashed).padding(.vertical, 9)
+
+            LoteDataRow(
+                key: "INGRESOS",
+                value: "\(base.symbol) \(vFmt(vm.totalIncomeBase, dec: base.defaultDecimals))",
+                valueColor: .vAcc
+            )
+            LoteDataRow(
+                key: "GASTOS",
+                value: "\(base.symbol) \(vFmt(vm.totalExpenseBase, dec: base.defaultDecimals))",
+                valueColor: .vDanger
+            )
+            TerminalSeparator(style: .dashed).padding(.vertical, 6)
+            LoteDataRow(
+                key: "BALANCE",
+                value: "\(balance < 0 ? "−" : "+")\(base.symbol) \(vFmt(abs(balance), dec: base.defaultDecimals))",
+                valueColor: balance < 0 ? .vDanger : .vAcc
+            )
+        }
+        .padding(14)
+        .solidCard()
+    }
+}
+
+private struct CategoryBreakdownCard: View {
+    let vm: AnalyticsViewModel
+
+    var body: some View {
+        let base = vm.baseCurrency
+        let slices = vm.expenseByCategory
+        let total = slices.reduce(0) { $0 + $1.amount }
+
+        VStack(spacing: 0) {
+            HStack {
+                Text("GASTO POR CATEGORÍA").vLabel(color: .vTx2)
+                Spacer()
+                Text("\(slices.count)").vLabel(size: 9, color: .vTx3)
+            }
+            TerminalSeparator(style: .dashed).padding(.vertical, 9)
+
+            if slices.isEmpty || total <= 0 {
+                Text("// SIN GASTOS EN ESTE RANGO")
+                    .vLabel(size: 9, color: .vTx3)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity)
+            } else {
+                ForEach(slices) { slice in
+                    let pct = total > 0 ? slice.amount / total : 0
+                    CategoryBar(
+                        glyph: slice.glyph,
+                        name: slice.name,
+                        amount: slice.amount,
+                        pct: pct,
+                        color: Color(hex: slice.colorHex),
+                        currency: base
+                    )
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+        .padding(14)
+        .solidCard()
+    }
+}
+
+private struct CategoryBar: View {
+    let glyph: String
+    let name: String
+    let amount: Double
+    let pct: Double
+    let color: Color
+    let currency: Currency
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Text(glyph).font(.system(size: 11, design: .monospaced)).foregroundStyle(color)
+                Text(name)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.vTx1)
+                Spacer()
+                Text("\(vFmt(pct * 100, dec: 0))%").vLabel(size: 9, color: .vTx3)
+                BalanceBadge(amount: amount, currency: currency, color: color, size: 12)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.vLine)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(color.opacity(0.85))
+                        .frame(width: proxy.size.width * pct)
+                }
+            }
+            .frame(height: 5)
+        }
+    }
+}
+
+private struct TrendCard: View {
+    let vm: AnalyticsViewModel
+
+    var body: some View {
+        let buckets = vm.trend6Months
+        let maxVal = buckets.flatMap { [$0.expense, $0.income] }.max() ?? 0
+
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 HStack(spacing: 4) {
                     Text("━").foregroundStyle(Color.vAcc)
-                    Text("Tasa real").vLabel()
+                    Text("Ingresos").vLabel()
                 }
                 HStack(spacing: 4) {
-                    Text("━").foregroundStyle(Color.vAmber)
-                    Text("Paralela").vLabel()
+                    Text("━").foregroundStyle(Color.vDanger)
+                    Text("Gastos").vLabel()
                 }
                 Spacer()
+                Text("6 MESES").vLabel(size: 9, color: .vTx3)
             }
             .padding(.bottom, 10)
 
-            Canvas { ctx, size in
-                let amberPoints: [(CGFloat, CGFloat)] = [
-                    (0,70),(45,62),(90,66),(135,55),(180,58),(225,48),(270,52),(320,44)
-                ]
-                let greenPoints: [(CGFloat, CGFloat)] = [
-                    (0,78),(45,72),(90,69),(135,64),(180,67),(225,60),(270,58),(320,55)
-                ]
-                let sx = size.width / 320
-                let sy = size.height / 110
+            if maxVal <= 0 {
+                Text("// SIN DATA HISTÓRICA TODAVÍA")
+                    .vLabel(size: 9, color: .vTx3)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity)
+            } else {
+                GeometryReader { proxy in
+                    let h = proxy.size.height
+                    let cols = buckets.count
+                    let colW = proxy.size.width / CGFloat(cols)
+                    let barW = max(4, colW * 0.30)
 
-                func polyline(_ pts: [(CGFloat, CGFloat)], color: Color) {
-                    var path = Path()
-                    for (i, pt) in pts.enumerated() {
-                        let p = CGPoint(x: pt.0 * sx, y: pt.1 * sy)
-                        i == 0 ? path.move(to: p) : path.addLine(to: p)
+                    HStack(spacing: 0) {
+                        ForEach(buckets) { b in
+                            VStack(spacing: 4) {
+                                ZStack(alignment: .bottom) {
+                                    HStack(spacing: 4) {
+                                        Bar(value: b.income, max: maxVal, h: h - 22, color: .vAcc, width: barW)
+                                        Bar(value: b.expense, max: maxVal, h: h - 22, color: .vDanger, width: barW)
+                                    }
+                                }
+                                Text(b.label).vLabel(size: 8, color: .vTx3)
+                            }
+                            .frame(width: colW)
+                        }
                     }
-                    ctx.stroke(path, with: .color(color), lineWidth: 1.5)
                 }
-
-                for i in 0...4 {
-                    let y = size.height * CGFloat(i) / 4
-                    var grid = Path()
-                    grid.move(to: CGPoint(x: 0, y: y))
-                    grid.addLine(to: CGPoint(x: size.width, y: y))
-                    ctx.stroke(grid, with: .color(Color.vLine), lineWidth: 0.5)
-                }
-                polyline(amberPoints, color: .vAmber)
-                polyline(greenPoints, color: .vAcc)
+                .frame(height: 130)
             }
-            .frame(height: 120)
         }
         .padding(14)
         .glassCard()
     }
 }
 
-struct MetricCard: View {
-    let label:  String
-    let value:  String
-    let sub:    String
-    let accent: Color
+private struct Bar: View {
+    let value: Double
+    let max: Double
+    let h: CGFloat
+    let color: Color
+    let width: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(label).vLabel()
-            Text(value).vNum(size: 22, color: accent).padding(.top, 6)
-            Text(sub).vLabel(size: 9, color: .vTx3).padding(.top, 5)
+        let pct = max > 0 ? value / max : 0
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color.opacity(0.85))
+                .frame(width: width, height: CGFloat(pct) * h)
         }
-        .padding(13)
-        .glassCard()
+        .frame(height: h)
+    }
+}
+
+private struct TopMerchantsCard: View {
+    let vm: AnalyticsViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("TOP COMERCIOS").vLabel(color: .vTx2)
+                Spacer()
+            }
+            TerminalSeparator(style: .dashed).padding(.vertical, 9)
+            ForEach(Array(vm.topMerchants.enumerated()), id: \.element.id) { idx, m in
+                HStack(spacing: 10) {
+                    Text(String(format: "%02d", idx + 1))
+                        .vNum(size: 11, color: .vTx3)
+                        .frame(width: 24, alignment: .leading)
+                    Text(m.merchant)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.vTx1)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(m.count)x").vLabel(size: 9, color: .vTx3)
+                    BalanceBadge(amount: m.amount, currency: vm.baseCurrency, color: .vDanger, size: 12)
+                }
+                .padding(.vertical, 5)
+            }
+        }
+        .padding(14)
+        .solidCard()
+    }
+}
+
+private struct EmptyStatsState: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("◌").font(.system(size: 28, design: .monospaced)).foregroundStyle(Color.vTx3)
+            Text("SIN DATOS").vLabel(color: .vTx2)
+            Text("// REGISTRA MOVIMIENTOS PARA VER REPORTES").vLabel(size: 9, color: .vTx3)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .solidCard()
     }
 }

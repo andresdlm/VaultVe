@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: Hashable {
-    case dashboard, ops, gastos, analytics, config
+    case dashboard, accounts, movements, analytics, config
 }
 
 struct ContentView: View {
@@ -13,11 +13,11 @@ struct ContentView: View {
             Tab("Panel", systemImage: "rectangle.3.group", value: AppTab.dashboard) {
                 DashboardView(engine: engine)
             }
-            Tab("Ops", systemImage: "arrow.left.arrow.right", value: AppTab.ops) {
-                OperacionesView(engine: engine)
+            Tab("Cuentas", systemImage: "creditcard", value: AppTab.accounts) {
+                AccountsView(engine: engine)
             }
-            Tab("Gastos", systemImage: "doc.text", value: AppTab.gastos) {
-                GastosView(engine: engine)
+            Tab("Movimientos", systemImage: "list.bullet.rectangle", value: AppTab.movements) {
+                MovementsView(engine: engine)
             }
             Tab("Stats", systemImage: "chart.xyaxis.line", value: AppTab.analytics) {
                 AnalyticsView(engine: engine)

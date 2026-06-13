@@ -3,17 +3,24 @@ import Observation
 
 @Observable
 final class ConfigViewModel {
-    private let engine: VaultEngine
+    let engine: VaultEngine
 
     var showICloudReminder = false
-    var showRateEditor     = false
+    var showRateEditor: Currency? = nil
+    var showCategoriesSheet = false
+
+    init(engine: VaultEngine) {
+        self.engine = engine
+    }
+
+    var baseCurrency: Currency {
+        get { engine.baseCurrency }
+        set { engine.setBaseCurrency(newValue) }
+    }
 
     var faceIdEnabled: Bool {
         get { engine.faceIdEnabled }
-        set {
-            engine.faceIdEnabled = newValue
-            engine.persist()
-        }
+        set { engine.faceIdEnabled = newValue; engine.persist() }
     }
 
     var iCloudSyncEnabled: Bool {
@@ -21,27 +28,19 @@ final class ConfigViewModel {
         set {
             engine.iCloudSyncEnabled = newValue
             engine.persist()
-            showICloudReminder = true   // takes effect on next launch
+            showICloudReminder = true
         }
     }
 
-    var selectedLayout: DashboardLayout {
-        get { engine.dashboardLayout }
-        set { engine.dashboardLayout = newValue; engine.persist() }
+    var nonBaseCurrencies: [Currency] {
+        Currency.allCases.filter { $0 != baseCurrency }
     }
 
-    var selectedRate: ActiveRate {
-        get { engine.activeRateKey }
-        set { engine.activeRateKey = newValue; engine.persist() }
+    func rate(for currency: Currency) -> Double {
+        engine.rate(for: currency)?.unitsPerBase ?? 0
     }
 
-    var currentRates: ExchangeRates { engine.rates }
-
-    func updateRates(bcv: Double, paralela: Double) {
-        engine.updateRates(bcv: bcv, paralela: paralela)
-    }
-
-    init(engine: VaultEngine) {
-        self.engine = engine
+    func updateRate(_ currency: Currency, unitsPerBase: Double) {
+        _ = try? engine.upsertRate(currency: currency, unitsPerBase: unitsPerBase)
     }
 }
