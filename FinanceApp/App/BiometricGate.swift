@@ -53,7 +53,7 @@ struct BiometricGate<Content: View>: View {
 
         ctx.evaluatePolicy(
             .deviceOwnerAuthentication,
-            localizedReason: "Acceder a VaultVE"
+            localizedReason: "Acceder a VAULT"
         ) { ok, evalErr in
             DispatchQueue.main.async {
                 attempting = false
@@ -110,7 +110,7 @@ struct AuthFeedback {
             tone = .neutral
             icon = "key.fill"
             title = "Usar código"
-            message = "Introduce tu código para acceder a VaultVE."
+            message = "Introduce tu código para acceder a VAULT."
 
         case .authenticationFailed:
             tone = .error
@@ -124,6 +124,12 @@ struct AuthFeedback {
             title = "Face ID bloqueado"
             message = "Demasiados intentos fallidos. Usa tu código para desbloquear Face ID."
 
+        case .passcodeNotSet:
+            tone = .error
+            icon = "lock.slash.fill"
+            title = "Sin código de acceso"
+            message = "Activa un código en Ajustes para proteger VAULT."
+
         case .biometryNotEnrolled:
             tone = .error
             icon = "faceid"
@@ -135,12 +141,6 @@ struct AuthFeedback {
             icon = "faceid"
             title = "Face ID no disponible"
             message = "Tu dispositivo no tiene Face ID activo. Usa tu código de acceso."
-
-        case .passcodeNotSet:
-            tone = .error
-            icon = "lock.slash.fill"
-            title = "Sin código de acceso"
-            message = "Activa un código en Ajustes para proteger VaultVE."
 
         default:
             tone = .error
@@ -163,9 +163,8 @@ private struct LockScreen: View {
             VStack(spacing: 18) {
                 Spacer()
                 HStack(spacing: 0) {
-                    Text("[").foregroundStyle(Color.vTx3)
-                    Text(" VAULT").foregroundStyle(Color.vTx1)
-                    Text("VE").foregroundStyle(Color.vAcc)
+                    Text("[ ").foregroundStyle(Color.vTx3)
+                    Text("VAULT").foregroundStyle(Color.vAcc)
                     Text(" ]").foregroundStyle(Color.vTx3)
                 }
                 .font(.system(size: 18, weight: .black, design: .monospaced))

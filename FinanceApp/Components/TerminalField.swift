@@ -118,9 +118,8 @@ struct FormHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 0) {
-                Text("[").foregroundStyle(Color.vTx3)
-                Text(" VAULT").foregroundStyle(Color.vTx1)
-                Text("VE").foregroundStyle(Color.vAcc)
+                Text("[ ").foregroundStyle(Color.vTx3)
+                Text("VAULT").foregroundStyle(Color.vAcc)
                 Text(" / NUEVA OP ]").foregroundStyle(Color.vTx3)
             }
             .font(.system(size: 10, weight: .black, design: .monospaced))
