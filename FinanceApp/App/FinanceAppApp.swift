@@ -7,10 +7,14 @@ struct FinanceAppApp: App {
     private let container: ModelContainer
 
     init() {
+        Self.wipeLegacyStoreIfNeeded()
+
         let schema = Schema([
-            USDTLot.self, VESLot.self, USDTAllocation.self,
-            Gasto.self, VESAllocation.self,
-            USDIncome.self, RateSnapshot.self,
+            Account.self,
+            Category.self,
+            Transaction.self,
+            Transfer.self,
+            ExchangeRate.self,
         ])
         let cloud = UserDefaults.standard.bool(forKey: VaultEngine.kICloudPersisted)
         let config = ModelConfiguration(
@@ -21,8 +25,7 @@ struct FinanceAppApp: App {
         do {
             container = try ModelContainer(for: schema, configurations: [config])
         } catch {
-            // CloudKit can fail to attach if the user toggled it without the
-            // capability/entitlement. Fall back to local-only so the app launches.
+            // CloudKit can fail to attach without the entitlement; fall back to local.
             let fallback = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
             container = try! ModelContainer(for: schema, configurations: [fallback])
         }
@@ -38,5 +41,25 @@ struct FinanceAppApp: App {
             .preferredColorScheme(.dark)
         }
         .modelContainer(container)
+    }
+
+    // Drops the old VaultVE schema (USDTLot / VESLot / Gasto / etc.) on first
+    // launch after upgrading to the simplified account-based model. The old
+    // store only ever held dummy seed data so a clean wipe is acceptable.
+    private static func wipeLegacyStoreIfNeeded() {
+        let d = UserDefaults.standard
+        let stored = d.string(forKey: VaultEngine.kSchemaVersion)
+        guard stored != VaultEngine.currentSchemaVersion else { return }
+
+        if let appSupport = try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: false
+        ) {
+            for suffix in ["default.store", "default.store-shm", "default.store-wal"] {
+                let url = appSupport.appendingPathComponent(suffix)
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        d.set(VaultEngine.currentSchemaVersion, forKey: VaultEngine.kSchemaVersion)
     }
 }

@@ -4,43 +4,38 @@ import SwiftData
 import SwiftUI
 
 // App-level @Observable façade over VaultRepository.
-// Views observe this object — never the repository directly.
-// `dirtyTick` is bumped after every mutation to force SwiftUI re-reads of
-// derived totals that depend on relationship traversal (SwiftData doesn't
-// always re-fire @Observable for nested @Relationship changes).
+// Views observe this object via .environment(engine). Mutations bump dirtyTick
+// so derived totals re-read after SwiftData relationship changes.
 @Observable
 final class VaultEngine {
     let repository: VaultRepository
 
-    var activeRateKey:     ActiveRate = .paralela
-    var dashboardLayout:   DashboardLayout = .stack
+    var baseCurrencyRaw: String = Currency.usd.rawValue
     var iCloudSyncEnabled: Bool = false
-    var faceIdEnabled:     Bool = true
+    var faceIdEnabled: Bool = true
 
-    // Internal bump that any view can observe to invalidate cached derived state.
     private(set) var dirtyTick: Int = 0
 
     init(context: ModelContext) {
         self.repository = VaultRepository(context: context)
         loadPreferences()
-        bootstrapIfEmpty()
+        repository.seedDefaultsIfEmpty(baseCurrency: baseCurrency)
     }
 
-    // ─── Preferences in UserDefaults ────────────────────────────────────────
+    // ─── Preferences ────────────────────────────────────────────────────────
 
-    private static let kActiveRate    = "vault.activeRate"
-    private static let kLayout        = "vault.dashboardLayout"
-    private static let kFaceId        = "vault.faceIdEnabled"
-    private static let kICloud        = "vault.iCloudSyncEnabled"
-    static let kICloudPersisted       = "vault.iCloudSyncEnabled"   // public for app launch
+    private static let kBaseCurrency = "vault.baseCurrency"
+    private static let kFaceId       = "vault.faceIdEnabled"
+    private static let kICloud       = "vault.iCloudSyncEnabled"
+    static let kICloudPersisted      = "vault.iCloudSyncEnabled"
+    static let kSchemaVersion        = "vault.schemaVersion"
+    static let currentSchemaVersion  = "v2"
 
     private func loadPreferences() {
         let d = UserDefaults.standard
-        if let raw = d.string(forKey: Self.kActiveRate), let v = ActiveRate(rawValue: raw) {
-            activeRateKey = v
-        }
-        if let raw = d.string(forKey: Self.kLayout), let v = DashboardLayout(rawValue: raw) {
-            dashboardLayout = v
+        if let raw = d.string(forKey: Self.kBaseCurrency),
+           let _ = Currency(rawValue: raw) {
+            baseCurrencyRaw = raw
         }
         if d.object(forKey: Self.kFaceId) != nil {
             faceIdEnabled = d.bool(forKey: Self.kFaceId)
@@ -50,131 +45,210 @@ final class VaultEngine {
 
     func persist() {
         let d = UserDefaults.standard
-        d.set(activeRateKey.rawValue, forKey: Self.kActiveRate)
-        d.set(dashboardLayout.rawValue, forKey: Self.kLayout)
+        d.set(baseCurrencyRaw, forKey: Self.kBaseCurrency)
         d.set(faceIdEnabled, forKey: Self.kFaceId)
         d.set(iCloudSyncEnabled, forKey: Self.kICloud)
     }
 
-    // ─── First-launch seed ──────────────────────────────────────────────────
-
-    private func bootstrapIfEmpty() {
-        let hasData =
-            !repository.allUSDTLots().isEmpty ||
-            !repository.allIncome().isEmpty ||
-            !repository.allGastos().isEmpty
-        if hasData { return }
-
-        // Seed a plausible starting state so the app isn't empty on first launch.
-        _ = try? repository.updateRate(bcv: 40.20, paralela: 41.85)
-        _ = try? repository.addUSDIncome(date: .now.addingTimeInterval(-86400 * 14), amount: 1500, source: "Salario", note: nil)
-
-        if let u1 = try? repository.addUSDTLot(date: .now.addingTimeInterval(-86400 * 12), usdSent: 150, usdtReceived: 149.78, feeUsd: 0.22, note: nil),
-           let u2 = try? repository.addUSDTLot(date: .now.addingTimeInterval(-86400 * 6), usdSent: 200, usdtReceived: 199.62, feeUsd: 0.38, note: nil),
-           let u3 = try? repository.addUSDTLot(date: .now.addingTimeInterval(-86400 * 2), usdSent: 100, usdtReceived: 99.87, feeUsd: 0.13, note: nil) {
-            _ = (u1, u2, u3)
-        }
-        if let v1 = try? repository.addVESLot(date: .now.addingTimeInterval(-86400 * 11), usdtSent: 120, vesReceived: 4980, note: nil),
-           let v2 = try? repository.addVESLot(date: .now.addingTimeInterval(-86400 * 5), usdtSent: 80, vesReceived: 3320.80, note: nil),
-           let v3 = try? repository.addVESLot(date: .now.addingTimeInterval(-86400 * 1), usdtSent: 50, vesReceived: 2085, note: nil) {
-            _ = (v1, v2, v3)
-        }
-        _ = try? repository.addGasto(date: .now.addingTimeInterval(-86400 * 10), merchant: "Gasolina PDV La Trinidad", category: GastoCategory.transporte.label, vesAmount: 2490, note: nil)
-        _ = try? repository.addGasto(date: .now.addingTimeInterval(-86400 * 5),  merchant: "Panadería La Esquina",     category: GastoCategory.restaurantes.label, vesAmount: 830.20, note: nil)
-        _ = try? repository.addGasto(date: .now.addingTimeInterval(-86400 * 4),  merchant: "Farmatodo C.C. Sambil",    category: GastoCategory.salud.label, vesAmount: 1660.40, note: nil)
-        _ = try? repository.addGasto(date: .now.addingTimeInterval(-86400 * 1),  merchant: "Supermercado Excelsior Gama", category: GastoCategory.mercado.label, vesAmount: 4170, note: nil)
-
-        dirtyTick += 1
-    }
-
     // ─── Read-through accessors ─────────────────────────────────────────────
 
-    var usdAvail:    Double { _ = dirtyTick; return repository.usdAvail }
-    var usdtAvail:   Double { _ = dirtyTick; return repository.usdtAvail }
-    var vesBalance:  Double { _ = dirtyTick; return repository.vesBalance }
-    var usdtAvgCost: Double { _ = dirtyTick; return repository.usdtAvgCost }
-    var vesCostPerBs: Double { _ = dirtyTick; return repository.vesCostPerBs }
-    var vesInUsd:    Double { _ = dirtyTick; return repository.vesInUsd }
-    var patrimonioUsd: Double { _ = dirtyTick; return repository.patrimonioUsd }
-    var patrimonioVes: Double { _ = dirtyTick; return repository.patrimonioVes(rate: activeRateKey) }
-    var spreadPct:   Double  { _ = dirtyTick; return repository.spreadPct }
-    var activeRate:  Double {
-        guard let r = repository.latestRateSnapshot() else { return 0 }
-        return activeRateKey == .bcv ? r.bcv : r.paralela
+    var baseCurrency: Currency { Currency.from(raw: baseCurrencyRaw) }
+
+    var accounts:     [Account]     { _ = dirtyTick; return repository.allAccounts() }
+    var allAccounts:  [Account]     { _ = dirtyTick; return repository.allAccounts(includingArchived: true) }
+    var categories:   [Category]    { _ = dirtyTick; return repository.allCategories() }
+    var transactions: [Transaction] { _ = dirtyTick; return repository.allTransactions() }
+    var transfers:    [Transfer]    { _ = dirtyTick; return repository.allTransfers() }
+    var rates:        [ExchangeRate]{ _ = dirtyTick; return repository.allRates() }
+
+    func categories(of kind: TransactionKind) -> [Category] {
+        _ = dirtyTick
+        return repository.categories(kind: kind)
     }
-    var rates: ExchangeRates {
-        guard let r = repository.latestRateSnapshot() else { return .placeholder }
-        return ExchangeRates(
-            bcv: r.bcv,
-            paralela: r.paralela,
-            paralelaPrev: r.paralelaPrev,
-            spreadPrevPct: r.spreadPrevPct,
-            date: Self.shortDateFmt.string(from: r.capturedAt)
+
+    func rate(for currency: Currency) -> ExchangeRate? {
+        _ = dirtyTick
+        return repository.rate(for: currency)
+    }
+
+    // Convert an amount in `from` to the base currency.
+    // Falls back to `nil` if the rate is missing or 0 (non-base).
+    func convertToBase(_ amount: Double, from currency: Currency) -> Double? {
+        if currency == baseCurrency { return amount }
+        guard let r = repository.rate(for: currency), r.unitsPerBase > 0 else { return nil }
+        return amount / r.unitsPerBase
+    }
+
+    // Convert from base into any currency. Returns nil when no rate yet.
+    func convertFromBase(_ amount: Double, to currency: Currency) -> Double? {
+        if currency == baseCurrency { return amount }
+        guard let r = repository.rate(for: currency), r.unitsPerBase > 0 else { return nil }
+        return amount * r.unitsPerBase
+    }
+
+    // ─── Aggregates ─────────────────────────────────────────────────────────
+
+    // Sum of every account's balance converted to base. Accounts whose rate
+    // is missing contribute 0 — surfaced separately via `accountsMissingRate`.
+    var totalNetWorth: Double {
+        _ = dirtyTick
+        return accounts.reduce(0.0) { acc, a in
+            acc + (convertToBase(a.balance, from: a.currency) ?? 0)
+        }
+    }
+
+    // Returns currencies in use that have no rate set (excluding base).
+    var currenciesMissingRate: [Currency] {
+        let used = Set(accounts.map(\.currency)).subtracting([baseCurrency])
+        return used.filter { c in
+            let r = repository.rate(for: c)
+            return r == nil || r!.unitsPerBase <= 0
+        }.sorted { $0.code < $1.code }
+    }
+
+    var monthExpensesBase: Double { monthAggregate(.expense) }
+    var monthIncomeBase:   Double { monthAggregate(.income) }
+    var monthBalanceBase:  Double { monthIncomeBase - monthExpensesBase }
+
+    private func monthAggregate(_ kind: TransactionKind) -> Double {
+        guard let lower = Calendar.current.dateInterval(of: .month, for: .now)?.start else { return 0 }
+        return transactions
+            .filter { $0.kind == kind && $0.date >= lower }
+            .reduce(0.0) { acc, tx in
+                acc + (convertToBase(tx.amount, from: tx.currency) ?? 0)
+            }
+    }
+
+    // ─── Mutations ──────────────────────────────────────────────────────────
+
+    @discardableResult
+    func createAccount(
+        name: String, currency: Currency, kind: AccountKind,
+        glyph: String, colorHex: String, initialBalance: Double, note: String?
+    ) throws -> Account {
+        let a = try repository.createAccount(
+            name: name, currency: currency, kind: kind,
+            glyph: glyph, colorHex: colorHex,
+            initialBalance: initialBalance, note: note
         )
+        bump()
+        return a
     }
 
-    var usdtLots: [USDTLot] { _ = dirtyTick; return repository.allUSDTLots().reversed() }
-    var vesLots:  [VESLot]  { _ = dirtyTick; return repository.allVESLots().reversed() }
-    var gastos:   [Gasto]   { _ = dirtyTick; return repository.allGastos() }
-    var incomes:  [USDIncome] { _ = dirtyTick; return repository.allIncome().reversed() }
-
-    // ─── Mutations (the views call into these via their VMs) ────────────────
-
-    @discardableResult
-    func recordIncome(date: Date, amount: Double, source: String, note: String?) throws -> USDIncome {
-        let i = try repository.addUSDIncome(date: date, amount: amount, source: source, note: note)
-        dirtyTick &+= 1
-        return i
+    func updateAccount(
+        _ account: Account,
+        name: String, kind: AccountKind, glyph: String,
+        colorHex: String, initialBalance: Double, note: String?
+    ) throws {
+        try repository.updateAccount(
+            account, name: name, kind: kind, glyph: glyph,
+            colorHex: colorHex, initialBalance: initialBalance, note: note
+        )
+        bump()
     }
 
-    @discardableResult
-    func recordUSDTPurchase(date: Date, usdSent: Double, usdtReceived: Double, feeUsd: Double, note: String?) throws -> USDTLot {
-        let l = try repository.addUSDTLot(date: date, usdSent: usdSent, usdtReceived: usdtReceived, feeUsd: feeUsd, note: note)
-        dirtyTick &+= 1
-        return l
+    func setArchived(_ account: Account, archived: Bool) throws {
+        try repository.setArchived(account, archived: archived)
+        bump()
     }
 
-    @discardableResult
-    func recordVESSale(date: Date, usdtSent: Double, vesReceived: Double, note: String?) throws -> VESLot {
-        let l = try repository.addVESLot(date: date, usdtSent: usdtSent, vesReceived: vesReceived, note: note)
-        dirtyTick &+= 1
-        return l
+    func deleteAccount(_ account: Account) throws {
+        try repository.deleteAccount(account)
+        bump()
     }
 
     @discardableResult
-    func recordGasto(date: Date, merchant: String, category: String, vesAmount: Double, note: String?) throws -> Gasto {
-        let g = try repository.addGasto(date: date, merchant: merchant, category: category, vesAmount: vesAmount, note: note)
-        dirtyTick &+= 1
-        return g
+    func createCategory(name: String, glyph: String, colorHex: String, kind: TransactionKind) throws -> Category {
+        let c = try repository.createCategory(name: name, glyph: glyph, colorHex: colorHex, kind: kind)
+        bump()
+        return c
     }
 
-    func updateRates(bcv: Double, paralela: Double) {
-        try? repository.updateRate(bcv: bcv, paralela: paralela)
-        dirtyTick &+= 1
+    func updateCategory(_ category: Category, name: String, glyph: String, colorHex: String) throws {
+        try repository.updateCategory(category, name: name, glyph: glyph, colorHex: colorHex)
+        bump()
     }
 
-    func refresh() {
-        repository.jitterRates()
-        dirtyTick &+= 1
+    func setArchived(_ category: Category, archived: Bool) throws {
+        try repository.setArchived(category, archived: archived)
+        bump()
     }
 
-    // ─── Trace + previews ───────────────────────────────────────────────────
-
-    func trace(_ gasto: Gasto) -> GastoTrace {
-        repository.traceGasto(gasto)
+    func deleteCategory(_ category: Category) throws {
+        try repository.deleteCategory(category)
+        bump()
     }
 
-    func previewVES(usdtSent: Double) -> [VESLotAllocationPreview] {
-        repository.previewVESLot(usdtSent: usdtSent)
+    @discardableResult
+    func recordExpense(date: Date, account: Account, amount: Double, merchant: String, category: Category?, note: String?) throws -> Transaction {
+        let tx = try repository.recordTransaction(
+            kind: .expense, date: date, account: account,
+            amount: amount, merchant: merchant, category: category, note: note
+        )
+        bump()
+        return tx
     }
 
-    func previewGasto(vesAmount: Double) -> [GastoAllocationPreview] {
-        repository.previewGasto(vesAmount: vesAmount)
+    @discardableResult
+    func recordIncome(date: Date, account: Account, amount: Double, merchant: String, category: Category?, note: String?) throws -> Transaction {
+        let tx = try repository.recordTransaction(
+            kind: .income, date: date, account: account,
+            amount: amount, merchant: merchant, category: category, note: note
+        )
+        bump()
+        return tx
     }
 
-    private static let shortDateFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MM/dd/yyyy"
-        return f
-    }()
+    func updateTransaction(_ tx: Transaction, date: Date, account: Account, amount: Double, merchant: String, category: Category?, note: String?) throws {
+        try repository.updateTransaction(
+            tx, date: date, account: account, amount: amount,
+            merchant: merchant, category: category, note: note
+        )
+        bump()
+    }
+
+    func deleteTransaction(_ tx: Transaction) throws {
+        try repository.deleteTransaction(tx)
+        bump()
+    }
+
+    @discardableResult
+    func recordTransfer(date: Date, source: Account, dest: Account, sourceAmount: Double, destAmount: Double, note: String?) throws -> Transfer {
+        let t = try repository.recordTransfer(
+            date: date, source: source, dest: dest,
+            sourceAmount: sourceAmount, destAmount: destAmount, note: note
+        )
+        bump()
+        return t
+    }
+
+    func updateTransfer(_ transfer: Transfer, date: Date, source: Account, dest: Account, sourceAmount: Double, destAmount: Double, note: String?) throws {
+        try repository.updateTransfer(
+            transfer, date: date, source: source, dest: dest,
+            sourceAmount: sourceAmount, destAmount: destAmount, note: note
+        )
+        bump()
+    }
+
+    func deleteTransfer(_ transfer: Transfer) throws {
+        try repository.deleteTransfer(transfer)
+        bump()
+    }
+
+    @discardableResult
+    func upsertRate(currency: Currency, unitsPerBase: Double) throws -> ExchangeRate {
+        let r = try repository.upsertRate(currency: currency, unitsPerBase: unitsPerBase)
+        bump()
+        return r
+    }
+
+    func setBaseCurrency(_ currency: Currency) {
+        guard currency != baseCurrency else { return }
+        baseCurrencyRaw = currency.rawValue
+        persist()
+        try? repository.reanchorBase(currency)
+        bump()
+    }
+
+    private func bump() { dirtyTick &+= 1 }
 }
