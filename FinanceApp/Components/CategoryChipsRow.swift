@@ -41,7 +41,7 @@ struct CategoryChipsRow: View {
 }
 
 struct ChipButton: View {
-    let glyph: String
+    let glyph: String?
     let label: String
     let color: Color
     let active: Bool
@@ -50,9 +50,11 @@ struct ChipButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Text(glyph)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(active ? color : .vTx2)
+                if let glyph {
+                    Text(glyph)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(active ? color : .vTx2)
+                }
                 Text(label)
                     .vLabel(size: 9, color: active ? color : .vTx2)
             }
