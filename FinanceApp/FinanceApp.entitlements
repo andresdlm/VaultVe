@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Raises the default file-protection class for every file the app writes
+	  (SwiftData store, caches, App Switcher snapshots, UserDefaults) to
+	  "complete": the data is encrypted at rest and unreadable while the device
+	  is locked, keyed to the device passcode. This is the foundation of the
+	  app's at-rest privacy guarantee.
+	-->
+	<key>com.apple.developer.default-data-protection</key>
+	<string>NSFileProtectionComplete</string>
+</dict>
+</plist>

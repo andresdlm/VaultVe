@@ -29,6 +29,7 @@ struct FinanceAppApp: App {
             let fallback = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
             container = try! ModelContainer(for: schema, configurations: [fallback])
         }
+        Self.hardenStoreProtection(at: config.url)
         _engine = State(initialValue: VaultEngine(context: container.mainContext))
     }
 
@@ -61,5 +62,29 @@ struct FinanceAppApp: App {
             }
         }
         d.set(VaultEngine.currentSchemaVersion, forKey: VaultEngine.kSchemaVersion)
+    }
+
+    // Pins the on-disk SwiftData store (and its WAL/SHM companions) to
+    // "complete unless open" data protection: the files stay encrypted whenever
+    // the device is locked and the app isn't actively holding them open, which
+    // is the realistic theft / forensic-extraction scenario.
+    //
+    // We deliberately use UnlessOpen rather than the strictest Complete for the
+    // database specifically — a live SQLite store the OS evicts mid-flight when
+    // the screen locks can fault the app. Every *other* file the app writes
+    // still defaults to Complete via the entitlement.
+    private static func hardenStoreProtection(at storeURL: URL) {
+        let fm = FileManager.default
+        let companions = [
+            storeURL,
+            URL(fileURLWithPath: storeURL.path + "-wal"),
+            URL(fileURLWithPath: storeURL.path + "-shm"),
+        ]
+        for url in companions where fm.fileExists(atPath: url.path) {
+            try? fm.setAttributes(
+                [.protectionKey: FileProtectionType.completeUnlessOpen],
+                ofItemAtPath: url.path
+            )
+        }
     }
 }

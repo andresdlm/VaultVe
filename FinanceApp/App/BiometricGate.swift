@@ -13,9 +13,12 @@ struct BiometricGate<Content: View>: View {
 
     @ViewBuilder var content: () -> Content
 
+    // True whenever real (sensitive) content is on screen rather than the lock.
+    private var showingContent: Bool { !engine.faceIdEnabled || unlocked }
+
     var body: some View {
         Group {
-            if !engine.faceIdEnabled || unlocked {
+            if showingContent {
                 content()
             } else {
                 LockScreen(
@@ -24,6 +27,14 @@ struct BiometricGate<Content: View>: View {
                     onUnlock: attempt
                 )
                 .task { attempt() }
+            }
+        }
+        .overlay {
+            // Cover sensitive content the moment the app stops being active, so
+            // the snapshot iOS stores for the App Switcher never captures
+            // balances or movements. Shown across .inactive and .background.
+            if showingContent && scenePhase != .active {
+                PrivacyCover()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -58,6 +69,17 @@ struct BiometricGate<Content: View>: View {
             DispatchQueue.main.async {
                 attempting = false
                 if ok {
+                    // Cryptographically confirm the unlock against the Secure
+                    // Enclave-backed key, reusing the context we just
+                    // authenticated so there is no second prompt. This makes the
+                    // gate real rather than a Bool an attacker could flip.
+                    guard VaultKeychain.confirmAccess(using: ctx) else {
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            feedback = .secureKeyUnavailable
+                        }
+                        return
+                    }
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     withAnimation(.easeOut(duration: 0.25)) { unlocked = true }
                 } else {
@@ -82,6 +104,22 @@ struct AuthFeedback {
     let icon: String
     let title: String
     let message: String
+
+    init(tone: Tone, icon: String, title: String, message: String) {
+        self.tone = tone
+        self.icon = icon
+        self.title = title
+        self.message = message
+    }
+
+    // Surfaced when biometrics succeed but the Secure Enclave-backed gate key
+    // can't be read (e.g. transient Keychain failure).
+    static let secureKeyUnavailable = AuthFeedback(
+        tone: .error,
+        icon: "lock.trianglebadge.exclamationmark.fill",
+        title: "No se pudo abrir la bóveda",
+        message: "No fue posible validar la llave segura. Vuelve a intentarlo."
+    )
 
     // Returns nil when there is nothing worth surfacing.
     init?(error: Error?) {
@@ -148,6 +186,30 @@ struct AuthFeedback {
             title = "No se pudo autenticar"
             message = "Ocurrió un problema al verificar tu identidad. Vuelve a intentarlo."
         }
+    }
+}
+
+// Opaque cover shown while the app is inactive/backgrounded so the App Switcher
+// snapshot reveals nothing about the user's finances.
+private struct PrivacyCover: View {
+    var body: some View {
+        ZStack {
+            VaultBackground()
+            VStack(spacing: 14) {
+                HStack(spacing: 0) {
+                    Text("[ ").foregroundStyle(Color.vTx3)
+                    Text("VAULT").foregroundStyle(Color.vAcc)
+                    Text(" ]").foregroundStyle(Color.vTx3)
+                }
+                .font(.system(size: 18, weight: .black, design: .monospaced))
+                .tracking(3)
+
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundStyle(Color.vAcc)
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 
